@@ -1,0 +1,353 @@
+<?php
+
+/**
+ * Manipulate images
+ *
+ * New actions should accept $image_path and $save_path.
+ * $image_path should be passed to class::_loadImage
+ * $save_path should be passed to class::_saveImage
+ *
+ * Jun 21, 10 - zdp: added actions to crop and rotate. Updated to support multiple actions in one request
+ * Jun 8, 10 - zdp: initial creation
+ */
+
+namespace Thoom\Forge;
+
+class Image
+{
+
+    /**
+     * The name of the method argument that receives input
+     * @var string
+     */
+    private $input = 'image_path';
+
+    /**
+     * The name of the method argument that saves the output
+     * @var string
+     */
+    private $output = 'save_path';
+
+    private $save_quality = 80;
+
+    private $error = 'An unknown error has occurred';
+
+    public function crop($image_path, $crop_top = 0, $crop_right = 0, $crop_bottom = 0, $crop_left = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $crop_height = $imagick->getImageHeight() - $crop_top - $crop_bottom;
+        $crop_width = $imagick->getImageWidth() - $crop_right - $crop_left;
+
+        $imagick->cropImage($crop_width, $crop_height, $crop_left, $crop_top);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function cropTo($image_path, $crop_height = 0, $crop_width = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $left = ($imagick->getImageWidth() - $crop_width) / 2;
+        $top = ($imagick->getImageHeight() - $crop_height) / 2;
+
+        $imagick->cropImage($crop_width, $crop_height, $left, $top);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function cropSquare($image_path, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $h = $imagick->getImageHeight(); //350
+        $w = $imagick->getImageWidth(); //450
+
+        $crop_height = ($h > $w) ? $w : $h; //350
+        $crop_width = ($h > $w) ? $w : $h; //350
+
+        $top = floor(abs($w - $crop_width) / 2); //450 - 350 / 2 = 50
+        $left = floor(abs($h - $crop_height) / 2); //350 - 350 / 2 = 0
+
+	error_log("h = $h; w = $w; top = $top; left = $left;");
+        $imagick->cropImage($crop_width, $crop_height, $top, $left);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function modulate($image_path, $brightness = 100, $saturation = 100, $hue = 300,  $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+	$imagick->modulateImage($brightness, $saturation, $hue);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function resize($image_path, $resize_height = 0, $resize_width = 0, $resize_filter = 'lanczos', $resize_blur = 1, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $resize_filter = @constant('\imagick::FILTER_' . strtoupper($resize_filter));
+        if (!$resize_filter) {
+            $resize_filter = \imagick::FILTER_POINT;
+        }
+
+        $dimensions = $this->_resizeDimensions($resize_height, $resize_width, $imagick);
+        $imagick->resizeImage($dimensions['width'], $dimensions['height'], $resize_filter, $resize_blur);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function resizeAdaptive($image_path, $resize_height = 0, $resize_width = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $ratio = $imagick->getImageHeight() / $imagick->getImageWidth();
+
+        $w = ($ratio < 1) ? $resize_width : floor($ratio * $resize_height);
+        $h = ($ratio < 1) ? floor($ratio * $resize_width) : $resize_height;
+
+        $imagick->adaptiveResizeImage($w, $h);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function resizeSample($image_path, $resize_height = 0, $resize_width = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $ratio = $imagick->getImageHeight() / $imagick->getImageWidth();
+
+        $w = ($ratio < 1) ? $resize_width : floor($ratio * $resize_height);
+        $h = ($ratio < 1) ? floor($ratio * $resize_width) : $resize_height;
+
+        $imagick->sampleImage($w, $h);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function resizeScale($image_path, $resize_height = 0, $resize_width = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $ratio = $imagick->getImageHeight() / $imagick->getImageWidth();
+
+        $w = ($ratio < 1) ? $resize_width : 0;
+        $h = ($ratio < 1) ? 0 : $resize_height;
+
+        $imagick->scaleImage($w, $h);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function resizeThumbnail($image_path, $resize_height = 0, $resize_width = 0, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $dimensions = $this->_resizeDimensions($resize_height, $resize_width, $imagick);
+        $imagick->thumbnailImage($dimensions['width'], $dimensions['height']);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    /**
+     * Rotate the image passed in image_path.
+     * If no save_path, the rotated image will be passed back in a string
+     *
+     * @param string $image_path
+     * @param int $rotate_degrees
+     * @param string $save_path
+     * @return bool|image
+     */
+    public function rotate($image_path, $rotate_degrees, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $imagick->rotateImage(new \ImagickPixel(), $rotate_degrees);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function save($image_path, $save_quality, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $this->save_quality = $save_quality;
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    public function unsharp($image_path, $unsharp_radius, $unsharp_sigma, $unsharp_amount, $unsharp_threshold, $save_path = null)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        $imagick->unsharpMaskImage($unsharp_radius, $unsharp_sigma, $unsharp_amount, $unsharp_threshold);
+
+        return $this->_saveImage($save_path, $imagick);
+    }
+
+    /**
+     * Returns a string representation of the image passed
+     *
+     * @param string $image_path
+     * @return string
+     */
+    public function view($image_path)
+    {
+        $imagick = $this->_loadImage($image_path);
+
+        if (!$imagick) {
+            return;
+        }
+
+        return $this->_saveImage(null, $imagick);
+    }
+
+    /**
+     * Get the input variable name (this variable is the image path)
+     * @return string
+     */
+    public function getInputName()
+    {
+        return $this->input;
+    }
+
+    /**
+     * Get the output variable name (this variable is the save path)
+     * @return string
+     */
+    public function getOutputName()
+    {
+        return $this->output;
+    }
+
+    /**
+     * Get the error
+     * @return string
+     */
+    public function getErrorMessage()
+    {
+        return $this->error;
+    }
+
+    /**
+     * Tries to read the image_path into a new \Imagick object.
+     *
+     * @param string $image_path
+     * @return \Imagick
+     */
+    private function _loadImage($image_path)
+    {
+        if ($image_path instanceof \Imagick) {
+            return $image_path;
+        }
+
+        $imagick = new \Imagick();
+        try {
+            $imagick->readImage($image_path);
+        } catch (\ImagickException $e) {
+            try {
+                $imagick->readImageBlob($image_path);
+            } catch (\ImagickException $e) {
+                $this->error = "Could not load image '$image_path' for editing";
+                return;
+            }
+        }
+        return $imagick;
+    }
+
+    private function _resizeDimensions($height, $width, \Imagick $imagick)
+    {
+        if ($height != 0 && $width != 0) {
+            $ratio = $imagick->getImageHeight() / $imagick->getImageWidth();
+
+            $width = ($ratio < 1) ? $width : 0;
+            $height = ($ratio < 1) ? 0 : $height;
+        }
+
+        return array('width' => $width, 'height' => $height);
+    }
+
+    /**
+     * If the save_path is null, then we just output the $imagick image
+     * @param string $save_path
+     * @param \Imagick $imagick
+     * @return bool|string
+     */
+    private function _saveImage($save_path, \Imagick $imagick)
+    {
+        if ($save_path) {
+            $dirname = dirname($save_path);
+
+            if (!is_dir($dirname)) {
+                mkdir($dirname, 0777, true);
+            }
+
+            if (is_numeric($this->save_quality) && $this->save_quality > 0 && $this->save_quality < 100) {
+                $imagick->setImageCompressionQuality($this->save_quality);
+            }
+
+            $results = $imagick->writeImage($save_path);
+
+            if ($results) {
+                chmod($save_path, 0777);
+            } else {
+                $this->error = "Could not save image '$save_path'";
+            }
+
+            return $results;
+        }
+
+        return $imagick->getImage();
+    }
+
+}

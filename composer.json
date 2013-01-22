@@ -1,0 +1,19 @@
+{
+    "name":"thoom/forge",
+    "description":"PHP 5.3 classes used to build and manipulate data",
+    "type":"library",
+    "keywords":["imagemagick", "image"],
+    "homepage":"https://github.com/thoom/forge",
+    "license":"MIT",
+    "autoload":{
+        "psr-0":{
+            "Thoom":"lib/"
+        }
+    },
+    "authors":[
+        {
+            "name":"Z.d. Peacock",
+            "email":"zdp@thoomtech.com"
+        }
+    ]
+}
