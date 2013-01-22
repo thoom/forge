@@ -95,7 +95,7 @@ class Image
         return $this;
     }
 
-    public function resizeAdaptive($image_path, $resize_height = 0, $resize_width = 0, $save_path = null)
+    public function resizeAdaptive($resize_height = 0, $resize_width = 0, $save_path = null)
     {
         $ratio = $this->imagick->getImageHeight() / $this->imagick->getImageWidth();
 
